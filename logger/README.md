@@ -2,33 +2,11 @@
 
 Structured, trace-correlated logging for Node/TypeScript microservices.
 
-A thin, opinionated wrapper over [Pino](https://getpino.io) that implements the
-[Structured Logging & Request Tracing design doc](../DESIGNDOC.md):
-one JSON schema, automatic cross-service trace correlation, sensitive-data
-redaction by default, and a single stable API shared by every service.
+A thin wrapper over [Pino](https://getpino.io) that implements the MVP of the
+[design doc](../DESIGNDOC.md): one JSON schema, automatic cross-service
+correlation via W3C `traceparent`, and redaction by default.
 
-This package is a **reference implementation** of the design's core: it
-demonstrates the key decisions, not a production-hardened library.
-
-## Why this exists
-
-- **One schema, everywhere** — every service emits the same JSON shape, so logs
-  are searchable in one place (fixes format drift + per-service log hunting).
-- **Automatic trace correlation** — a `trace_id` follows a request across
-  services with **zero manual threading**, using `AsyncLocalStorage` + W3C
-  Trace Context. This is the headline feature.
-- **Safe by default** — credentials, tokens, and PII are redacted automatically
-  (critical for an identity domain).
-- **12-factor** — logs go to stdout as single-line JSON; shipping/storage is the
-  platform's job (Fluent Bit → Elasticsearch / CloudWatch).
-
-## Install
-
-```bash
-npm install @hopae/logger pino
-```
-
-`@nestjs/common` and `rxjs` are optional peers, only needed for the `/nestjs` entry.
+To run tests and demos, see the [root README](../README.md).
 
 ## Quick start
 
@@ -73,29 +51,37 @@ Output (one line per event):
 | `context`                   | optional         | structured business data (redacted)           |
 | `error`                     | on errors        | `{ type, message, stack }`                    |
 
-## Request tracing
+## Usage
 
-Establish context once at the edge; every log line inside the request is
-correlated automatically.
+Wire the middleware once at request start. Every log inside that request gets
+`trace_id` / `span_id` automatically — no manual threading.
 
-### Express / any connect-style app
+Exports:
+
+- `@hopae/logger` — core logger
+- `@hopae/logger/http` — connect-style middleware + outbound header helper
+- `@hopae/logger/nestjs` — NestJS module, middleware, and interceptor  
+  (`@nestjs/common` and `rxjs` are optional peers)
+
+### Express
 
 ```ts
 import express from "express";
+import { createLogger } from "@hopae/logger";
 import {
   traceContextMiddleware,
   outboundTraceHeaders,
 } from "@hopae/logger/http";
 
+const logger = createLogger({ service: "orders-api" });
 const app = express();
-app.use(traceContextMiddleware()); // reads/creates `traceparent`, seeds context
+app.use(traceContextMiddleware());
 
 app.get("/order/:id", async (req, res) => {
   logger.info("order received"); // includes trace_id + span_id automatically
 
-  // forward the trace to downstream services:
   const r = await fetch("http://inventory/checks", {
-    headers: outboundTraceHeaders(),
+    headers: outboundTraceHeaders(), // continue the same trace downstream
   });
   res.json(await r.json());
 });
@@ -123,104 +109,28 @@ export class AppModule {
 }
 ```
 
-`HopaeLoggerService` also implements Nest's `LoggerService`, so you can
-`app.useLogger(app.get(HopaeLoggerService))` to route framework logs through
-the same schema.
-
 ## Redaction
 
-Sensitive keys are redacted deeply by default (case- and separator-insensitive,
-so `access_token`, `accessToken`, and `AccessToken` all match):
+Sensitive keys are redacted deeply by default (case- and separator-insensitive):
 
 ```ts
 logger.info("login", { email: "a@b.com", password: "x" });
 // context: { "email": "[REDACTED]", "password": "[REDACTED]" }
 ```
 
-Override the deny-list per logger via `createLogger({ redact: [...] })`.
+Override the deny-list with `createLogger({ redact: [...] })`.
 
-## Adding correlation fields mid-request
-
-```ts
-import { addContext } from "@hopae/logger";
-
-// after authentication:
-addContext({ userId: "u_123" }); // now attached to every subsequent log line
-```
-
-## Scripts
-
-```bash
-npm run test       # unit tests (vitest)
-npm run typecheck  # tsc --noEmit
-npm run build      # bundle to dist (ESM + CJS + d.ts) via tsup
-npm run demo       # two-service trace-propagation demo (Express)
-npm run demo:nest  # same demo built with NestJS
-```
-
-## Demos
-
-Both start an `orders` service that calls an `inventory` service, send one
-request through both, and print logs sharing a single `trace_id` — plus a
-redacted `authorization` field.
-
-- `npm run demo` — plain Express. See [`examples/trace-demo.ts`](./examples/trace-demo.ts).
-- `npm run demo:nest` — NestJS, using `LoggerModule`, `TraceContextMiddleware`,
-  and the boundary-logging `LoggingInterceptor`. See
-  [`examples/nestjs-trace-demo.ts`](./examples/nestjs-trace-demo.ts).
-
-## Architecture
-
-The `src/` layer is organized so that Pino is quarantined inside a single file
-and everything depends only on the layers beneath it.
+## Package layout
 
 ```
-                         types.ts
-              (LogLevel, LogContext, Logger, LoggerOptions)
-                            ▲  the contract
-                            │
-        ┌───────────────────┼───────────────────┐
-        │                   │                   │
-   context.ts           trace.ts          redaction.ts
- (AsyncLocalStorage   (W3C traceparent   (deep, cycle-safe
-  request context)     parse/generate)    sensitive-key scrub)
-        └───────────────────┼───────────────────┘
-                            │  composed by
-                            ▼
-                        logger.ts
-        (createLogger over Pino; `mixin` injects trace
-         context; nests + redacts `context`; serializes errors)
-                            │  re-exported by
-                            ▼
-                        index.ts   ── public entry: @hopae/logger
-                            │
-              ┌─────────────┴─────────────┐
-              ▼                           ▼
-        http/index.ts               nestjs/index.ts
-   (@hopae/logger/http)          (@hopae/logger/nestjs)
-   connect-style trace           LoggerModule + TraceContextMiddleware
-   middleware + outbound         + LoggingInterceptor + HopaeLoggerService
-   header helper
+src/
+  types.ts, context.ts, trace.ts, redaction.ts, logger.ts, index.ts  → @hopae/logger
+  http/     → @hopae/logger/http
+  nestjs/   → @hopae/logger/nestjs
+examples/   → Express and NestJS demos
 ```
-
-| File              | Layer       | Purpose                                                                                               |
-| ----------------- | ----------- | ----------------------------------------------------------------------------------------------------- |
-| `types.ts`        | contract    | Public `Logger` interface + option/schema types. No imports — the root of the graph.                  |
-| `context.ts`      | primitive   | `AsyncLocalStorage`-backed per-request trace context. Enables correlation with zero manual threading. |
-| `trace.ts`        | primitive   | W3C Trace Context IDs + `traceparent` parse/format.                                                   |
-| `redaction.ts`    | primitive   | Deep, cycle-safe, depth-bounded redactor with normalized key matching.                                |
-| `logger.ts`       | core        | Composes the three primitives on top of Pino; the only file that imports Pino.                        |
-| `index.ts`        | entry       | Public surface (`@hopae/logger`) — core + context + trace + redaction.                                |
-| `http/index.ts`   | integration | Framework-agnostic trace middleware (inbound) + `outboundTraceHeaders()` (outbound).                  |
-| `nestjs/index.ts` | integration | NestJS module, middleware, boundary-logging interceptor, and `LoggerService` adapter.                 |
-
-Each layer only knows about the ones below it, and callers depend on the
-`Logger` interface — so the underlying engine could be swapped without touching
-a single call site.
 
 ## Scope
 
-This is the MVP slice of the design. Deliberately **not** included: full
-distributed tracing spans, metrics, log shipping/transport (that's Fluent Bit's
-job), and async/queue propagation — all discussed as later phases in the design
-doc.
+MVP only: structured logs, HTTP correlation, redaction. Full tracing spans,
+metrics, and queue propagation are deferred — see the design doc.
