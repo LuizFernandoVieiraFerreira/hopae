@@ -1,12 +1,6 @@
 /**
- * Same demo as `trace-demo.ts`, but built with NestJS to prove the `/nestjs`
- * integration works: one request through two Nest apps (orders -> inventory),
- * one shared `trace_id`, boundary logging via the interceptor, and automatic
- * redaction — all through the same logger.
- *
- * Dependencies are injected via the explicit `HOPAE_LOGGER` token (not
- * reflection-based DI), which is how the package's Nest integration is designed
- * and lets this run under tsx/esbuild without `emitDecoratorMetadata`.
+ * NestJS version of the Express demo: orders → inventory, one shared
+ * `trace_id`, boundary logging via LoggingInterceptor, and redaction.
  *
  * Run: npm run demo:nest
  */
@@ -32,7 +26,7 @@ import type { Logger } from "../src/types";
 const PORT_A = 4001;
 const PORT_B = 4002;
 
-// --- service-b: inventory ---------------------------------------------------
+// Service B: Inventory
 @Controller()
 class InventoryController {
   constructor(@Inject(HOPAE_LOGGER) private readonly logger: Logger) {}
@@ -61,7 +55,7 @@ class InventoryModule {
   }
 }
 
-// --- service-a: orders (calls service-b) ------------------------------------
+// Service A: Orders (calls Service B)
 @Controller()
 class OrderController {
   constructor(@Inject(HOPAE_LOGGER) private readonly logger: Logger) {}

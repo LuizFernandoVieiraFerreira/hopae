@@ -25,19 +25,25 @@ logging module based on that design — so this submission has two parts:
 
 The implementation lives in [`logger/`](./logger).
 
-1. Install dependencies:
+1. Enter the package directory:
+
+   ```bash
+   cd logger
+   ```
+
+2. Install dependencies:
 
    ```bash
    npm install
    ```
 
-2. Run the tests:
+3. Run the tests:
 
    ```bash
    npm test
    ```
 
-3. Run the demos (one request across two services, one shared `trace_id`, sensitive fields redacted):
+4. Run the demos (one request across two services, one shared `trace_id`, sensitive fields redacted):
 
    ```bash
    npm run demo        # Express
