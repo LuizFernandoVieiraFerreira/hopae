@@ -2,8 +2,10 @@
 
 ## Overview
 
-This submission has two parts, addressing the "learn about errors from users
-first / 4-hour response time" problem:
+This repository was built as a technical assignment for Hopae's application
+process. The assignment asks for a design document proposing a solution for
+structured logging and request tracing across microservices, plus a TypeScript
+logging module based on that design — so this submission has two parts:
 
 1. **Design document** — [`DESIGNDOC.md`](./DESIGNDOC.md):
    a proposal to standardize structured, trace-correlated logging across our
@@ -35,47 +37,30 @@ The implementation lives in [`logger/`](./logger).
    npm test
    ```
 
-3. See it work end to end (one request across two services, one shared
-   `trace_id`, sensitive fields redacted):
+3. Run the demos (one request across two services, one shared `trace_id`, sensitive fields redacted):
+
    ```bash
-   npm run demo        # plain Express
-   npm run demo:nest   # same demo built with NestJS
+   npm run demo        # Express
+   npm run demo:nest   # NestJS (same flow, plus request boundary logs)
    ```
 
 Other useful scripts:
 
 ```bash
-npm run typecheck   # tsc --noEmit
-npm run build       # bundle to dist/ (ESM + CJS + type declarations)
+npm run typecheck
+npm run build
 ```
-
-## Details
-
-- **Structured logs** — every service emits the same single-line JSON schema
-  (`timestamp`, `level`, `service`, `env`, `version`, `trace_id`, `span_id`,
-  `message`, `context`, `error`), aligned to the OpenTelemetry log data model.
-- **Automatic request tracing** — a `trace_id` follows a request across services
-  with zero manual threading, using `AsyncLocalStorage` + W3C Trace Context
-  (`traceparent`).
-- **Redaction by default** — credentials, tokens, and PII are redacted
-  automatically (deep, cycle-safe), a first-class concern for the identity domain.
-- **Framework-agnostic core + adapters** — a single package with subpath exports:
-  - `@hopae/logger` — the core logger.
-  - `@hopae/logger/http` — connect-style trace middleware + outbound header helper.
-  - `@hopae/logger/nestjs` — `LoggerModule`, `TraceContextMiddleware`, and a
-    boundary-logging `LoggingInterceptor`.
-- **12-factor** — logs go to stdout; shipping and storage (Fluent Bit →
-  Elasticsearch / CloudWatch) are the platform's responsibility, as described in
-  the design doc.
-
-For full usage and API details, see the package README:
-[`logger/README.md`](./logger/README.md).
 
 ## Note
 
 This is a scoped reference implementation meant to demonstrate the design's key
 decisions, not a production-hardened library — see the design doc's non-goals and
 phased plan for what is intentionally deferred.
+
+`@hopae/logger` is structured as a real npm package (proper exports, dual
+ESM/CJS builds, and TypeScript types). Other services can import it via a local
+path or `npm pack`. It is not published to the public npm registry, since that
+seemed outside the assignment scope.
 
 If you require any further clarification or additional information regarding the
 design or the code, please do not hesitate to contact me.
